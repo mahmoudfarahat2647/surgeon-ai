@@ -1,2 +1,5 @@
-node_modules
-.worktrees/
+node_modules/
+dist/
+.surgeon/
+surgeon-tests/
+*.tsbuildinfo

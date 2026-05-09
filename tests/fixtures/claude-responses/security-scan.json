@@ -1,0 +1,30 @@
+{
+  "findings": [
+    {
+      "id": "",
+      "file": "src/auth/login.ts",
+      "line": 2,
+      "severity": "critical",
+      "mode": "security",
+      "title": "SQL injection via string interpolation",
+      "description": "User input directly interpolated into SQL query",
+      "evidence": "const query = `SELECT * FROM users WHERE id = ${id}`",
+      "suggestion": "Use parameterized queries",
+      "confidence": "high",
+      "fix": {
+        "description": "Use parameterized query",
+        "diff": [{
+          "file": "src/auth/login.ts",
+          "oldCode": "const query = `SELECT * FROM users WHERE id = ${id}`",
+          "newCode": "const query = \"SELECT * FROM users WHERE id = $1\";\n  const params = [id]",
+          "startLine": 2,
+          "endLine": 2
+        }],
+        "confidence": "high",
+        "breaking": false
+      }
+    }
+  ],
+  "moduleSummary": "Critical SQL injection found",
+  "healthScore": 30
+}
