@@ -1,7 +1,10 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["bin/srgn.ts", "src/index.ts"],
+  entry: {
+    srgn: "bin/srgn.ts",
+    index: "src/index.ts",
+  },
   format: ["esm"],
   target: "node20",
   outDir: "dist",
