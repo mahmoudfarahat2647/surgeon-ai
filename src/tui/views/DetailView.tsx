@@ -8,6 +8,7 @@ import { KeyHints } from "../components/KeyHints.js";
 
 interface DetailViewProps {
   onBack: () => void;
+  onQuit: () => void;
 }
 
 function severityColor(severity: string): string {
@@ -20,14 +21,14 @@ function severityColor(severity: string): string {
   }
 }
 
-export function DetailView({ onBack }: DetailViewProps): React.ReactElement {
+export function DetailView({ onBack, onQuit }: DetailViewProps): React.ReactElement {
   const { state, dispatch } = useTui();
   const { filteredFindings, focusedIndex, selectedIds } = state;
   const finding = filteredFindings[focusedIndex];
 
   useKeyboard({
     back: onBack,
-    quit: onBack,
+    quit: onQuit,
     select: () => {
       if (finding) dispatch({ type: "TOGGLE_SELECTED", id: finding.id });
     },

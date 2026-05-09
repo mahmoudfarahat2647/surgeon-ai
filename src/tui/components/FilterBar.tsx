@@ -1,5 +1,5 @@
 import React from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import type { Filters } from "../state.js";
 
 interface FilterBarProps {
@@ -7,18 +7,38 @@ interface FilterBarProps {
   onChange: (f: Partial<Filters>) => void;
 }
 
-const SEVERITIES = ["all", "critical", "high", "medium", "low", "info"];
+const SEVERITIES: Array<Filters["severity"]> = [
+  "all",
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "info",
+];
 const FIXABLE_OPTIONS: Array<Filters["fixable"]> = [
   "all",
   "fixable",
   "auto-fixable",
 ];
 
-export function FilterBar({ filters }: FilterBarProps): React.ReactElement {
+export function FilterBar({ filters, onChange }: FilterBarProps): React.ReactElement {
+  useInput((input) => {
+    if (input === "s") {
+      const idx = SEVERITIES.indexOf(filters.severity);
+      const next = SEVERITIES[(idx + 1) % SEVERITIES.length]!;
+      onChange({ severity: next });
+    }
+    if (input === "f") {
+      const idx = FIXABLE_OPTIONS.indexOf(filters.fixable);
+      const next = FIXABLE_OPTIONS[(idx + 1) % FIXABLE_OPTIONS.length]!;
+      onChange({ fixable: next });
+    }
+  });
+
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box>
-        <Text>{"Severity: "}</Text>
+        <Text>{"Severity [s]: "}</Text>
         {SEVERITIES.map((s) => (
           <Box key={s} marginRight={1}>
             <Text
@@ -31,7 +51,7 @@ export function FilterBar({ filters }: FilterBarProps): React.ReactElement {
         ))}
       </Box>
       <Box>
-        <Text>{"Fixable:  "}</Text>
+        <Text>{"Fixable  [f]: "}</Text>
         {FIXABLE_OPTIONS.map((opt) => (
           <Box key={opt} marginRight={1}>
             <Text

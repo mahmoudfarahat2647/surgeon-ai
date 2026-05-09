@@ -67,17 +67,22 @@ function App({ scanResult }: { scanResult: ScanResult }): React.ReactElement {
   });
 
   const handleQuit = async () => {
-    if (state.selectedIds.size > 0) {
-      const selection = {
-        scanId: scanResult.meta.timestamp,
-        timestamp: new Date().toISOString(),
-        selectedIds: [...state.selectedIds],
-      };
-      await fs.writeFile(
-        path.resolve(".surgeon", "selected-fixes.json"),
-        JSON.stringify(selection, null, 2),
-        "utf-8"
-      );
+    try {
+      if (state.selectedIds.size > 0) {
+        const selection = {
+          scanId: scanResult.meta.timestamp,
+          timestamp: new Date().toISOString(),
+          selectedIds: [...state.selectedIds],
+        };
+        await fs.mkdir(path.resolve(".surgeon"), { recursive: true });
+        await fs.writeFile(
+          path.resolve(".surgeon", "selected-fixes.json"),
+          JSON.stringify(selection, null, 2),
+          "utf-8"
+        );
+      }
+    } catch {
+      // ignore write errors — exit regardless
     }
     process.exit(0);
   };
@@ -95,7 +100,7 @@ function App({ scanResult }: { scanResult: ScanResult }): React.ReactElement {
             onQuit={handleQuit}
           />
         )}
-        {view === "detail" && <DetailView onBack={() => setView("list")} />}
+        {view === "detail" && <DetailView onBack={() => setView("list")} onQuit={handleQuit} />}
         {view === "summary" && (
           <SummaryView onBack={() => setView("list")} onQuit={handleQuit} />
         )}
