@@ -66,7 +66,6 @@ Surgeon AI is a comprehensive CLI tool that audits codebases for bugs, security 
 | `--include <glob>` | Only scan matching paths |
 | `--exclude <glob>` | Skip matching paths |
 | `--auto-fix` | Scan then auto-fix (high confidence, on isolated branch) |
-| `--parallel <n>` | Max concurrent Claude calls (default: auto — spawns one agent per chunk, no cap) |
 | `--format <json\|md\|html\|all>` | Output format (default: all) |
 | `--output <dir>` | Report output dir (default: `surgeon-tests/`) |
 
@@ -173,7 +172,7 @@ srgn review                           # Open interactive TUI
 | **Discovery** (`src/discovery/`) | Walk file tree, respect `.gitignore` + include/exclude, detect project type |
 | **Dep Graph** (`src/graph/`) | Parse `import`/`require` for Node/Next.js, build adjacency list, topological sort |
 | **Chunker** (`src/chunker/`) | Group files into scan units by module boundary or dep graph clusters |
-| **Claude Bridge** (`src/bridge/`) | Spawn `claude -p`, max parallelism (all chunks at once), rate-limit backoff, parse responses, retry on failure |
+| **Claude Bridge** (`src/bridge/`) | Spawn `claude -p`, orchestrator-driven parallelism (1 agent per chunk), rate-limit backoff, parse responses, retry on failure |
 | **Framework Profiles** (`src/profiles/`) | Per-framework prompt templates (React, Next.js, Express, Fastify, etc.) |
 | **Analyzer** (`src/analyzer/`) | Orchestrates phases 1-5, aggregates findings, deduplicates |
 | **Fixer** (`src/fixer/`) | Reads scan results, classifies confidence, applies diffs on isolated branch |
@@ -226,32 +225,36 @@ Git Helper: git diff --name-only main
 ### Concurrency Model
 
 ```
-Claude Bridge: maximum parallelism by default (one agent per chunk)
+The orchestrator decides agent count automatically. No user config needed.
 
-  For a project with 8 modules, ALL 8 run simultaneously:
+  Orchestrator logic:
+    1. Count chunks after chunking phase
+    2. Spawn exactly as many agents as there are chunks
+    3. 1 chunk = 1 agent. 8 chunks = 8 agents. 50 chunks = 50 agents.
+    4. Adapt dynamically: rate limits → backoff + retry, high memory → throttle
 
-  Worker 1:  ######--- chunk A
-  Worker 2:  ####----- chunk B
-  Worker 3:  #######-- chunk C
-  Worker 4:  #####---- chunk D
-  Worker 5:  ########- chunk E
-  Worker 6:  ###------ chunk F
-  Worker 7:  ######--- chunk G
-  Worker 8:  ####----- chunk H
-             ========= cross-module pass (after all complete)
+  Example: 8-module project → 8 simultaneous agents
 
-Default: --parallel auto (no cap, one agent per chunk)
-User can throttle with --parallel <n> if needed (e.g., rate limits)
+  Agent 1/8  src/auth/          [################] done   4 findings
+  Agent 2/8  src/api/users/     [################] done   3 findings
+  Agent 3/8  src/api/admin/     [################] done   2 findings
+  Agent 4/8  src/db/            [############----] 78%
+  Agent 5/8  src/utils/         [################] done   1 finding
+  Agent 6/8  src/middleware/    [################] done   2 findings
+  Agent 7/8  src/config/        [################] done   0 findings
+  Agent 8/8  src/tui/           [################] done   1 finding
+
+  Example: small branch scan with 2 changed files → 1 agent (no waste)
 ```
 
-**Safety guardrails for high parallelism:**
+**Safety guardrails:**
 
-1. **Isolated read-only phase** — parallel agents only READ code and produce findings. No file mutations during scan. This is inherently safe regardless of agent count.
-2. **Atomic aggregation** — each agent returns a self-contained JSON result. The orchestrator merges them after all complete. No shared mutable state between agents.
-3. **Rate limit detection** — if Claude CLI returns rate-limit errors, the bridge automatically backs off and retries with exponential delay. Does not crash or lose progress.
-4. **Memory-aware** — monitor system memory. If spawning N agents would exceed 80% RAM, auto-throttle to a safe level and warn the user.
-5. **Progress tracking** — all agents report progress to a central tracker. The terminal shows real-time status for every active agent.
-6. **Graceful failure** — if one agent crashes, its chunk is re-queued. Other agents continue unaffected. Final report notes any chunks that failed after retries.
+1. **Isolated read-only phase** — parallel agents only READ code and produce findings. No file mutations during scan. Safe at any agent count.
+2. **Atomic aggregation** — each agent returns self-contained JSON. No shared mutable state. Orchestrator merges after all complete.
+3. **Rate limit backoff** — if Claude CLI returns rate-limit errors, bridge backs off with exponential delay. No crash, no lost progress. Automatically resumes.
+4. **Memory-aware throttling** — monitors system memory. If spawning N agents would exceed 80% RAM, orchestrator reduces concurrency and warns user.
+5. **Progress tracking** — real-time terminal display showing every active agent's status.
+6. **Graceful failure** — if one agent crashes, its chunk is re-queued. Other agents continue unaffected. Final report notes any chunks that failed after max retries.
 
 ### Scan Terminal Output (parallel agents)
 
@@ -261,7 +264,7 @@ $ srgn scan .
   Discovering files...            found 142 files (ts, tsx, js)
   Building dependency graph...    87 nodes, 234 edges, 0 cycles
   Chunking into modules...        8 modules
-  Spawning 8 parallel agents...
+  Orchestrator: spawning 8 agents (1 per module)...
 
   Agent 1/8  src/auth/          [################] done   4 findings
   Agent 2/8  src/api/users/     [################] done   3 findings
@@ -274,7 +277,7 @@ $ srgn scan .
 
   Cross-module analysis...        3 additional findings
 
-  Scan complete in 47s (8 agents ran in parallel)
+  Scan complete in 47s (8 agents, decided by orchestrator)
 
   +--------------------------------------+
   | Health Score: 72/100                 |
@@ -920,7 +923,7 @@ surgeon-ai/
     bridge/
       index.ts               # Claude Bridge facade
       spawner.ts             # Spawn claude -p process
-      pool.ts                # Concurrency pool (auto: all chunks at once, throttle on rate-limit/memory)
+      pool.ts                # Orchestrator-driven pool (1 agent per chunk, auto-throttle on rate-limit/memory)
       parser.ts              # Parse Claude JSON responses
       retry.ts               # Retry + exponential backoff on rate limits
 
