@@ -77,15 +77,15 @@ export async function analyze(options: AnalyzeOptions): Promise<ScanResult> {
 
   // Detect framework profiles
   const profiles = detectProfiles(project);
-  const auditMode: AuditMode = mode === "full" ? "security" : mode as AuditMode;
 
   // Phase 4: Parallel Audit (orchestrator spawns 1 agent per chunk)
+  // "full" is passed as-is — getProfileFragments expands it to all concrete modes.
   const tasks: AgentTask<{ findings: Finding[]; healthScore: number }>[] = clusters.map(
     (chunk, i) => ({
       id: `chunk-${i}`,
       label: chunk.id,
       run: async () => {
-        const response = await auditChunk(projectPath, chunk, profiles, auditMode, depth);
+        const response = await auditChunk(projectPath, chunk, profiles, mode as AuditMode, depth, project);
         return { findings: response.findings, healthScore: response.healthScore };
       },
     }),

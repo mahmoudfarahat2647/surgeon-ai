@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import type { ProjectInfo, PackageManager } from "../types/scan.js";
+import type { ProjectInfo, PackageManager, NextjsRouter } from "../types/scan.js";
 
 const FRAMEWORK_DEPS: Record<string, string> = {
   next: "next",
@@ -33,6 +33,15 @@ export function detectFromPackageJson(
   return { frameworks, packageManager };
 }
 
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(p);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export async function detectProject(projectPath: string): Promise<ProjectInfo> {
   let pkg: Record<string, unknown> = {};
   let lockfileName: string | undefined;
@@ -57,6 +66,18 @@ export async function detectProject(projectPath: string): Promise<ProjectInfo> {
 
   const { frameworks, packageManager } = detectFromPackageJson(pkg as Record<string, unknown>, lockfileName);
 
+  // Detect Next.js router convention
+  let nextjsRouter: NextjsRouter | undefined;
+  if (frameworks.includes("next")) {
+    const hasApp = await dirExists(path.join(projectPath, "app"))
+                || await dirExists(path.join(projectPath, "src", "app"));
+    const hasPages = await dirExists(path.join(projectPath, "pages"))
+                  || await dirExists(path.join(projectPath, "src", "pages"));
+    if (hasApp && hasPages) nextjsRouter = "both";
+    else if (hasApp) nextjsRouter = "app";
+    else if (hasPages) nextjsRouter = "pages";
+  }
+
   const languages: string[] = [];
   try {
     await fs.access(path.join(projectPath, "tsconfig.json"));
@@ -73,5 +94,6 @@ export async function detectProject(projectPath: string): Promise<ProjectInfo> {
     packageManager,
     totalFiles: 0,
     scannedFiles: 0,
+    nextjsRouter,
   };
 }

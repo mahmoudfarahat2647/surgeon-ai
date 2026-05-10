@@ -1,0 +1,486 @@
+﻿diff --git a/src/analyzer/chunk-audit.ts b/src/analyzer/chunk-audit.ts
+index 4178245..51986b2 100644
+--- a/src/analyzer/chunk-audit.ts
++++ b/src/analyzer/chunk-audit.ts
+@@ -2,6 +2,7 @@ import fs from "fs/promises";
+ import path from "path";
+ import type { ModuleCluster } from "../types/graph.js";
+ import type { FrameworkProfile, AuditMode } from "../profiles/types.js";
++import type { ProjectInfo } from "../types/scan.js";
+ import { buildChunkPrompt } from "./prompt.js";
+ import { spawnClaude } from "../bridge/spawner.js";
+ import { parseClaudeResponse, type ClaudeAuditResponse } from "../bridge/parser.js";
+@@ -13,15 +14,15 @@ export async function auditChunk(
+   profiles: FrameworkProfile[],
+   mode: AuditMode,
+   depth: "shallow" | "standard" | "deep",
++  project: ProjectInfo,
+ ): Promise<ClaudeAuditResponse> {
+-  // Read file contents
+   const fileContents = new Map<string, string>();
+   for (const file of chunk.files) {
+     const content = await fs.readFile(path.resolve(projectPath, file.path), "utf-8");
+     fileContents.set(file.path, content);
+   }
+ 
+-  const prompt = buildChunkPrompt(chunk, profiles, mode, depth, fileContents);
++  const prompt = buildChunkPrompt(chunk, profiles, mode, depth, fileContents, project);
+ 
+   const result = await withRetry(async () => {
+     const { stdout } = await spawnClaude({ prompt, cwd: projectPath });
+diff --git a/src/analyzer/index.ts b/src/analyzer/index.ts
+index 37f5ac3..a2b4a2e 100644
+--- a/src/analyzer/index.ts
++++ b/src/analyzer/index.ts
+@@ -77,15 +77,15 @@ export async function analyze(options: AnalyzeOptions): Promise<ScanResult> {
+ 
+   // Detect framework profiles
+   const profiles = detectProfiles(project);
+-  const auditMode: AuditMode = mode === "full" ? "security" : mode as AuditMode;
+ 
+   // Phase 4: Parallel Audit (orchestrator spawns 1 agent per chunk)
++  // "full" is passed as-is ΓÇö getProfileFragments expands it to all concrete modes.
+   const tasks: AgentTask<{ findings: Finding[]; healthScore: number }>[] = clusters.map(
+     (chunk, i) => ({
+       id: `chunk-${i}`,
+       label: chunk.id,
+       run: async () => {
+-        const response = await auditChunk(projectPath, chunk, profiles, auditMode, depth);
++        const response = await auditChunk(projectPath, chunk, profiles, mode as AuditMode, depth, project);
+         return { findings: response.findings, healthScore: response.healthScore };
+       },
+     }),
+diff --git a/src/analyzer/prompt.ts b/src/analyzer/prompt.ts
+index 794f556..49dc1ab 100644
+--- a/src/analyzer/prompt.ts
++++ b/src/analyzer/prompt.ts
+@@ -1,7 +1,7 @@
+-import type { ModuleCluster } from "../types/graph.js";
++import type { ModuleCluster, } from "../types/graph.js";
+ import type { FrameworkProfile, AuditMode } from "../profiles/types.js";
+ import { getProfileFragments, getAllPitfalls } from "../profiles/index.js";
+-import type { ModuleScan } from "../types/scan.js";
++import type { ModuleScan, ProjectInfo } from "../types/scan.js";
+ import type { Finding } from "../types/finding.js";
+ 
+ export function buildChunkPrompt(
+@@ -10,6 +10,7 @@ export function buildChunkPrompt(
+   mode: AuditMode,
+   depth: "shallow" | "standard" | "deep",
+   fileContents: Map<string, string>,
++  project: ProjectInfo,
+ ): string {
+   const depthInstruction: Record<string, string> = {
+     shallow: "Focus on critical and high severity issues only. Be concise.",
+@@ -38,7 +39,7 @@ Each finding MUST include exact file path, line number, evidence code, concrete
+ Do NOT report style preferences, issues in generated code, or theoretical issues requiring unlikely preconditions.
+ 
+ ## Audit Rules
+-${getProfileFragments(profiles, mode)}
++${getProfileFragments(profiles, mode, project)}
+ 
+ ## Known Pitfalls
+ ${getAllPitfalls(profiles)}
+diff --git a/src/bridge/spawner.ts b/src/bridge/spawner.ts
+index 5c0f491..45cf89a 100644
+--- a/src/bridge/spawner.ts
++++ b/src/bridge/spawner.ts
+@@ -3,6 +3,14 @@ import { promisify } from "util";
+ 
+ const execFileAsync = promisify(execFile);
+ 
++interface ClaudeEnvelope {
++  type: string;
++  subtype?: string;
++  is_error?: boolean;
++  result?: string;
++  total_cost_usd?: number;
++}
++
+ export interface SpawnOptions {
+   prompt: string;
+   cwd?: string;
+@@ -13,10 +21,37 @@ export interface SpawnResult {
+   stdout: string;
+   stderr: string;
+   exitCode: number;
++  costUsd?: number;
++}
++
++/**
++ * Claude CLI with --output-format json wraps its response in an envelope:
++ *   { type: "result", result: "<actual text>", total_cost_usd: 0.001, ... }
++ *
++ * We unwrap it so callers always receive the raw Claude text in `stdout`.
++ * If the stdout isn't an envelope (e.g. --output-format text fallback), we
++ * return it unchanged.
++ */
++function unwrapEnvelope(raw: string): { text: string; costUsd?: number } {
++  try {
++    const obj = JSON.parse(raw) as ClaudeEnvelope;
++    if (obj.type === "result" && typeof obj.result === "string") {
++      return { text: obj.result, costUsd: obj.total_cost_usd };
++    }
++  } catch {
++    // Not a JSON envelope ΓÇö pass through as raw text
++  }
++  return { text: raw };
+ }
+ 
+ export async function spawnClaude(options: SpawnOptions): Promise<SpawnResult> {
+-  const args = ["-p", options.prompt, "--output-format", "json"];
++  const args = [
++    "-p",
++    options.prompt,
++    "--output-format",
++    "json",
++    "--dangerouslySkipPermissions",
++  ];
+ 
+   try {
+     const { stdout, stderr } = await execFileAsync("claude", args, {
+@@ -24,13 +59,17 @@ export async function spawnClaude(options: SpawnOptions): Promise<SpawnResult> {
+       timeout: options.timeoutMs ?? 300_000,
+       maxBuffer: 10 * 1024 * 1024,
+     });
+-    return { stdout, stderr, exitCode: 0 };
++    const { text, costUsd } = unwrapEnvelope(stdout);
++    return { stdout: text, stderr, exitCode: 0, costUsd };
+   } catch (err: unknown) {
+     const e = err as { stdout?: string; stderr?: string; code?: number };
++    const raw = e.stdout ?? "";
++    const { text, costUsd } = unwrapEnvelope(raw);
+     return {
+-      stdout: e.stdout ?? "",
++      stdout: text,
+       stderr: e.stderr ?? String(err),
+       exitCode: e.code ?? 1,
++      costUsd,
+     };
+   }
+ }
+diff --git a/src/discovery/detector.ts b/src/discovery/detector.ts
+index b5c04e8..e3570e8 100644
+--- a/src/discovery/detector.ts
++++ b/src/discovery/detector.ts
+@@ -1,6 +1,6 @@
+ import fs from "fs/promises";
+ import path from "path";
+-import type { ProjectInfo, PackageManager } from "../types/scan.js";
++import type { ProjectInfo, PackageManager, NextjsRouter } from "../types/scan.js";
+ 
+ const FRAMEWORK_DEPS: Record<string, string> = {
+   next: "next",
+@@ -33,6 +33,15 @@ export function detectFromPackageJson(
+   return { frameworks, packageManager };
+ }
+ 
++async function dirExists(p: string): Promise<boolean> {
++  try {
++    const stat = await fs.stat(p);
++    return stat.isDirectory();
++  } catch {
++    return false;
++  }
++}
++
+ export async function detectProject(projectPath: string): Promise<ProjectInfo> {
+   let pkg: Record<string, unknown> = {};
+   let lockfileName: string | undefined;
+@@ -57,6 +66,16 @@ export async function detectProject(projectPath: string): Promise<ProjectInfo> {
+ 
+   const { frameworks, packageManager } = detectFromPackageJson(pkg as Record<string, unknown>, lockfileName);
+ 
++  // Detect Next.js router convention
++  let nextjsRouter: NextjsRouter | undefined;
++  if (frameworks.includes("next")) {
++    const hasApp = await dirExists(path.join(projectPath, "app"));
++    const hasPages = await dirExists(path.join(projectPath, "pages"));
++    if (hasApp && hasPages) nextjsRouter = "both";
++    else if (hasApp) nextjsRouter = "app";
++    else if (hasPages) nextjsRouter = "pages";
++  }
++
+   const languages: string[] = [];
+   try {
+     await fs.access(path.join(projectPath, "tsconfig.json"));
+@@ -73,5 +92,6 @@ export async function detectProject(projectPath: string): Promise<ProjectInfo> {
+     packageManager,
+     totalFiles: 0,
+     scannedFiles: 0,
++    nextjsRouter,
+   };
+ }
+diff --git a/src/profiles/index.ts b/src/profiles/index.ts
+index 2423679..b267438 100644
+--- a/src/profiles/index.ts
++++ b/src/profiles/index.ts
+@@ -1,5 +1,7 @@
+ import type { FrameworkProfile, AuditMode } from "./types.js";
+ import type { ProjectInfo } from "../types/scan.js";
++
++const CONCRETE_MODES: AuditMode[] = ["security", "performance", "reliability", "maintainability", "tests"];
+ import { baseProfile } from "./base.js";
+ import { nodeProfile } from "./node.js";
+ import { typescriptProfile } from "./typescript.js";
+@@ -36,11 +38,24 @@ export function detectProfiles(project: ProjectInfo): FrameworkProfile[] {
+ export function getProfileFragments(
+   profiles: FrameworkProfile[],
+   mode: AuditMode,
++  project: ProjectInfo,
+ ): string {
+-  return profiles
+-    .map((p) => p.promptFragments[mode] ?? "")
+-    .filter((s) => s.length > 0)
+-    .join("\n\n");
++  const modes = mode === "full" ? CONCRETE_MODES : [mode];
++  const fragments: string[] = [];
++
++  for (const m of modes) {
++    for (const p of profiles) {
++      const static_ = p.promptFragments[m];
++      if (static_) fragments.push(static_);
++
++      if (p.dynamicPrompt) {
++        const dyn = p.dynamicPrompt(project, m);
++        if (dyn) fragments.push(dyn);
++      }
++    }
++  }
++
++  return fragments.join("\n\n");
+ }
+ 
+ export function getAllPitfalls(profiles: FrameworkProfile[]): string {
+diff --git a/src/profiles/nextjs.ts b/src/profiles/nextjs.ts
+index d491ca5..7424ccb 100644
+--- a/src/profiles/nextjs.ts
++++ b/src/profiles/nextjs.ts
+@@ -1,52 +1,167 @@
+-import type { FrameworkProfile } from "./types.js";
++import type { FrameworkProfile, AuditMode } from "./types.js";
++import type { ProjectInfo } from "../types/scan.js";
++
++const APP_ROUTER_SECURITY = `## Next.js App Router ΓÇö Security
++1. Server Actions ("use server"): Every exported function is a public POST endpoint. ALL args MUST be validated with zod/valibot. Missing validation = critical vuln.
++2. "use client" boundaries: Client components must never import server-only modules (db clients, env secrets). Flag any direct import chain from a "use client" file to a server module.
++3. Route Handlers (app/api/.../route.ts): Auth check must be the FIRST operation. Flag any route that touches data before verifying the session.
++4. cookies()/headers() from next/headers: Check for timing-safe comparison when reading auth tokens. Never forward raw Set-Cookie values from third-party fetches.
++5. Parallel/Intercepted routes: Each slot must have its own error boundary; missing ones cause unhandled rejections that can expose stack traces.
++6. next/headers in build-time components: Calling cookies() or headers() in a component rendered at build time crashes silently in production.`;
++
++const APP_ROUTER_RELIABILITY = `## Next.js App Router ΓÇö Reliability
++1. Every dynamic route segment (e.g. app/[id]/page.tsx) needs error.tsx AND not-found.tsx siblings. Missing files surface raw 500/404 to users.
++2. Async server components that fetch data need a loading.tsx sibling for Suspense streaming. Without it the whole page blocks.
++3. Metadata exports (generateMetadata) that throw will silently fall back ΓÇö wrap in try/catch and return a sensible default.
++4. Server Action error handling: throw new Error() inside "use server" is caught by the nearest error boundary, NOT returned to the caller. Callers that don't check the action result will silently swallow failures.`;
++
++const APP_ROUTER_PERFORMANCE = `## Next.js App Router ΓÇö Performance
++1. "use client" components that import large third-party libraries (charts, editors, date pickers) should use next/dynamic with { ssr: false }.
++2. Server components that call fetch() without { cache: 'force-cache' } or next: { revalidate } opt out of caching ΓÇö each request hits the origin.
++3. Images rendered without <Image> from next/image lose automatic lazy loading and format optimisation.
++4. route.ts handlers that construct large JSON responses should stream with new Response(ReadableStream) for payloads > 100 KB.`;
++
++const PAGES_ROUTER_SECURITY = `## Next.js Pages Router ΓÇö Security
++1. getServerSideProps: Never return full DB records. Whitelist only the fields the template needs. Returning { props: { user } } where user includes passwordHash = critical data leak.
++2. getStaticProps: Secrets fetched at build time must NOT appear in the returned props object (they are serialised into the client bundle).
++3. API routes (pages/api/): Auth check must be first. Missing auth before any data access is a critical finding.
++4. _document.tsx dangerouslySetInnerHTML: Any unsanitised string inserted here is a stored-XSS vector.
++5. Custom getInitialProps on _app.tsx: Runs on every navigation server-side ΓÇö heavy data fetches here are a DoS surface.`;
++
++const PAGES_ROUTER_RELIABILITY = `## Next.js Pages Router ΓÇö Reliability
++1. API routes that don't call res.end() / res.json() / res.send() leave the request hanging ΓÇö flag missing terminal response calls.
++2. getServerSideProps that throws will render the closest error page but the error is swallowed unless you re-throw ΓÇö always log before rethrowing.
++3. Fallback: true in getStaticPaths without a loading state in the page component causes a hydration mismatch flash.`;
++
++function buildDynamicPrompt(project: ProjectInfo, mode: AuditMode): string {
++  const router = project.nextjsRouter;
++  if (!router) return "";
++
++  const relevantModes = new Set<AuditMode>(["security", "reliability", "performance", "full"]);
++  if (!relevantModes.has(mode)) return "";
++
++  const fragments: string[] = [];
++
++  if (router === "app" || router === "both") {
++    if (mode === "security" || mode === "full") fragments.push(APP_ROUTER_SECURITY);
++    if (mode === "reliability" || mode === "full") fragments.push(APP_ROUTER_RELIABILITY);
++    if (mode === "performance" || mode === "full") fragments.push(APP_ROUTER_PERFORMANCE);
++  }
++
++  if (router === "pages" || router === "both") {
++    if (mode === "security" || mode === "full") fragments.push(PAGES_ROUTER_SECURITY);
++    if (mode === "reliability" || mode === "full") fragments.push(PAGES_ROUTER_RELIABILITY);
++  }
++
++  return fragments.join("\n\n");
++}
+ 
+ export const nextjsProfile: FrameworkProfile = {
+   id: "nextjs",
+   name: "Next.js",
+   detect: (project) => project.frameworks.includes("next"),
+-  filePatterns: ["app/**/page.{ts,tsx}", "app/**/layout.{ts,tsx}", "app/**/route.{ts,tsx}", "app/api/**/*", "middleware.{ts,js}"],
++  filePatterns: [
++    "app/**/page.{ts,tsx}",
++    "app/**/layout.{ts,tsx}",
++    "app/**/route.{ts,tsx}",
++    "app/**/error.{ts,tsx}",
++    "app/**/loading.{ts,tsx}",
++    "app/api/**/*",
++    "pages/**/*.{ts,tsx}",
++    "pages/api/**/*",
++    "middleware.{ts,js}",
++    "next.config.{js,ts,mjs}",
++  ],
+   knownPitfalls: [
+     {
+       id: "nextjs/unsafe-server-action",
+       title: "Unvalidated Server Action inputs",
+       severity: "critical",
+-      description: "Server Actions are public HTTP endpoints. Arguments must be validated with zod or similar.",
++      description: 'Server Actions are public HTTP POST endpoints. Every exported "use server" function must validate its arguments with zod or similar before touching data.',
+       codePattern: '"use server"',
+       references: ["CWE-20: Improper Input Validation"],
+     },
+     {
+       id: "nextjs/ssr-data-leak",
+-      title: "Sensitive data passed from server to client component",
++      title: "Sensitive data passed from server component to client component",
+       severity: "critical",
+-      description: "Server component passes DB records or secrets as props to a 'use client' component.",
++      description: 'A server component passes full DB records or secrets as props to a "use client" component ΓÇö those values are serialised into the client bundle.',
+       references: ["CWE-200: Exposure of Sensitive Information"],
+     },
+     {
+       id: "nextjs/missing-middleware-matcher",
+-      title: "Middleware matcher doesn't cover all protected routes",
++      title: "Middleware matcher does not cover all protected routes",
+       severity: "high",
+-      description: "New route segments added without updating middleware.ts matcher.",
++      description: "A new route segment was added without updating the matcher array in middleware.ts, leaving the route unprotected.",
+       references: ["CWE-862: Missing Authorization"],
+     },
++    {
++      id: "nextjs/env-var-client-exposure",
++      title: "Non-public secret exposed via NEXT_PUBLIC_ prefix",
++      severity: "critical",
++      description: "Only variables that are intentionally public should use the NEXT_PUBLIC_ prefix. Using it for API keys, DB connection strings, or signing secrets ships them to every browser.",
++      references: ["CWE-312: Cleartext Storage of Sensitive Information"],
++    },
++    {
++      id: "nextjs/api-route-missing-auth",
++      title: "API route / Route Handler reaches data without auth check",
++      severity: "critical",
++      description: "Any pages/api or app/api route that reads or writes data without first verifying a session is an unauthenticated endpoint.",
++      references: ["CWE-306: Missing Authentication for Critical Function"],
++    },
++    {
++      id: "nextjs/open-redirect",
++      title: "Unvalidated redirect target",
++      severity: "high",
++      description: "Passing user-controlled input to redirect(), router.push(), or res.redirect() without validating the destination enables open-redirect attacks.",
++      references: ["CWE-601: URL Redirection to Untrusted Site"],
++    },
++    {
++      id: "nextjs/missing-error-boundary",
++      title: "Dynamic route segment missing error.tsx",
++      severity: "medium",
++      description: "A route segment that performs async work has no error.tsx sibling, so any thrown error surfaces as an unhandled 500 with a raw stack trace.",
++      references: ["CWE-755: Improper Handling of Exceptional Conditions"],
++    },
++    {
++      id: "nextjs/getserversideprops-data-leak",
++      title: "getServerSideProps returns full database record",
++      severity: "high",
++      description: "Returning an unsanitised DB object from getServerSideProps embeds all fields (including sensitive ones) into the page's __NEXT_DATA__ JSON, visible to any user.",
++      references: ["CWE-200: Exposure of Sensitive Information"],
++    },
++    {
++      id: "nextjs/image-domain-wildcard",
++      title: "Wildcard or overly-broad image domain in next.config",
++      severity: "medium",
++      description: "Using a wildcard hostname in images.domains or remotePatterns turns next/image into an open proxy for any external image.",
++      references: ["CWE-441: Unintended Proxy or Intermediary"],
++    },
++    {
++      id: "nextjs/missing-not-found",
++      title: "Dynamic route missing not-found.tsx",
++      severity: "low",
++      description: "A dynamic App Router segment that calls notFound() has no not-found.tsx, so Next.js falls back to the global 404 page, losing any segment-specific context.",
++      references: [],
++    },
+   ],
+   promptFragments: {
+-    security: `## Next.js Security Audit Rules
+-1. Server Actions: Check ALL "use server" functions validate inputs. They are public HTTP endpoints.
+-2. API Routes (app/api/): Check for missing auth, unvalidated bodies, injection via query params.
+-3. Middleware bypass: Ensure middleware.ts matcher covers all protected routes.
+-4. SSR data exposure: Check server components don't pass secrets/DB records to client components.
+-5. Dynamic rendering secrets: Ensure secrets aren't in dynamically rendered pages (client bundles).
+-6. Image/redirect open redirect: Check next.config.js images.domains and redirects.`,
+-    performance: `## Next.js Performance Audit Rules
+-1. Bundle size: Large client-side imports that should use next/dynamic.
+-2. Missing Suspense: Pages with async data should use Suspense for streaming.
+-3. Image optimization: <img> tags that should be <Image> from next/image.
+-4. Client component bloat: "use client" components that could be split.`,
+-    reliability: `## Next.js Reliability Audit Rules
+-1. Missing error.tsx in route segments.
+-2. Missing loading.tsx in segments with async data.
+-3. Missing not-found.tsx for dynamic routes.
+-4. Middleware error handling: unhandled exceptions in middleware.ts.
+-5. API route error responses: proper status codes and structured errors.`,
++    security: `## Next.js Security Audit Rules (shared)
++1. Inspect next.config.{js,ts}: Check images.remotePatterns for wildcards, headers() for missing CSP/HSTS, redirects() for user-controlled destinations.
++2. Environment variables: Flag any secret (key, token, password) named NEXT_PUBLIC_*.
++3. Middleware (middleware.ts): Verify the matcher covers every protected route. A route not in the matcher bypasses all middleware auth.
++4. Third-party script injection: next/script with dangerouslyAllowSVG or strategy="beforeInteractive" loading untrusted src is an XSS vector.`,
++
++    performance: `## Next.js Performance Audit Rules (shared)
++1. Bundle size: Large imports inside "use client" components that should use next/dynamic.
++2. Image optimisation: Raw <img> tags that should be next/image.
++3. Font loading: Google Fonts loaded via <link> instead of next/font lose layout-shift benefits.`,
++
++    reliability: `## Next.js Reliability Audit Rules (shared)
++1. Middleware error handling: Unhandled exceptions in middleware.ts crash the edge runtime silently.
++2. next.config revalidate: A revalidate of 0 is equivalent to no caching ΓÇö verify it is intentional.
++3. API route response termination: Every code path in a pages/api handler must call res.end()/json()/send().`,
+   },
++
++  dynamicPrompt: buildDynamicPrompt,
+ };
+diff --git a/src/profiles/types.ts b/src/profiles/types.ts
+index a2209e0..27c0571 100644
+--- a/src/profiles/types.ts
++++ b/src/profiles/types.ts
+@@ -18,4 +18,9 @@ export interface FrameworkProfile {
+   promptFragments: Partial<Record<AuditMode, string>>;
+   filePatterns: string[];
+   knownPitfalls: Pitfall[];
++  /**
++   * Optional hook for rules that depend on runtime project shape (e.g. which
++   * Next.js router the project uses). Called after static promptFragments.
++   */
++  dynamicPrompt?: (project: ProjectInfo, mode: AuditMode) => string;
+ }
+diff --git a/src/types/scan.ts b/src/types/scan.ts
+index 7eb7642..29b2c0e 100644
+--- a/src/types/scan.ts
++++ b/src/types/scan.ts
+@@ -3,6 +3,7 @@ import type { Finding } from "./finding.js";
+ export type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
+ export type ScanScope = "full" | "branch";
+ export type ScanDepth = "shallow" | "standard" | "deep";
++export type NextjsRouter = "app" | "pages" | "both";
+ 
+ export interface ProjectInfo {
+   name: string;
+@@ -12,6 +13,8 @@ export interface ProjectInfo {
+   nodeVersion?: string;
+   totalFiles: number;
+   scannedFiles: number;
++  /** Populated when Next.js is detected: which router convention the project uses. */
++  nextjsRouter?: NextjsRouter;
+ }
+ 
+ export interface ScanMeta {

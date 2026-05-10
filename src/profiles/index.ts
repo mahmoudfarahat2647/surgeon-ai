@@ -1,5 +1,7 @@
 import type { FrameworkProfile, AuditMode } from "./types.js";
 import type { ProjectInfo } from "../types/scan.js";
+
+const CONCRETE_MODES: AuditMode[] = ["security", "performance", "reliability", "maintainability", "tests"];
 import { baseProfile } from "./base.js";
 import { nodeProfile } from "./node.js";
 import { typescriptProfile } from "./typescript.js";
@@ -36,11 +38,24 @@ export function detectProfiles(project: ProjectInfo): FrameworkProfile[] {
 export function getProfileFragments(
   profiles: FrameworkProfile[],
   mode: AuditMode,
+  project: ProjectInfo,
 ): string {
-  return profiles
-    .map((p) => p.promptFragments[mode] ?? "")
-    .filter((s) => s.length > 0)
-    .join("\n\n");
+  const modes = mode === "full" ? CONCRETE_MODES : [mode];
+  const fragments: string[] = [];
+
+  for (const m of modes) {
+    for (const p of profiles) {
+      const static_ = p.promptFragments[m];
+      if (static_) fragments.push(static_);
+
+      if (p.dynamicPrompt) {
+        const dyn = p.dynamicPrompt(project, m);
+        if (dyn) fragments.push(dyn);
+      }
+    }
+  }
+
+  return fragments.join("\n\n");
 }
 
 export function getAllPitfalls(profiles: FrameworkProfile[]): string {
