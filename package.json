@@ -4,7 +4,8 @@
   "description": "AI-Powered Codebase Audit & Repair CLI",
   "type": "module",
   "bin": {
-    "srgn": "./dist/srgn.js"
+    "srgn": "./dist/srgn.js",
+    "surgeon-ai": "./dist/srgn.js"
   },
   "exports": {
     ".": {
@@ -24,7 +25,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "publisher": "pnpm publish"
   },
   "keywords": ["audit", "codebase", "security", "ai", "claude", "code-review", "cli"],
   "license": "MIT",
