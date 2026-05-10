@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surgeon AI - CLI Cheatsheet</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #f8fafc;
+            --card-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --accent-green: #4ade80;
+            --border-color: #334155;
+            --success-color: #10b981;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            margin: 0;
+            padding: 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: var(--accent-color);
+            text-align: center;
+            margin-bottom: 0.5rem;
+            font-size: 2.5rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #94a3b8;
+            margin-bottom: 3rem;
+            font-size: 1.1rem;
+        }
+        h2 {
+            margin-top: 2.5rem;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.5rem;
+            color: #e2e8f0;
+            font-size: 1.5rem;
+        }
+        .command-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .command-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin: 0 0 0.5rem 0;
+        }
+        .command-desc {
+            color: #94a3b8;
+            margin: 0 0 1rem 0;
+            font-size: 0.95rem;
+        }
+        .code-container {
+            background-color: #020617;
+            border-radius: 6px;
+            padding: 1rem;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid #1e293b;
+        }
+        .code-text {
+            font-family: "Fira Code", "JetBrains Mono", Consolas, monospace;
+            color: var(--accent-green);
+            font-size: 1rem;
+            overflow-x: auto;
+            white-space: nowrap;
+            margin-right: 1rem;
+        }
+        .prompt {
+            color: #64748b;
+            margin-right: 0.5rem;
+            user-select: none;
+        }
+        .copy-btn {
+            background-color: var(--border-color);
+            color: var(--text-color);
+            border: none;
+            border-radius: 4px;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+        }
+        .copy-btn:hover {
+            background-color: #475569;
+        }
+        .copy-btn.copied {
+            background-color: var(--success-color);
+            color: #fff;
+        }
+        .copy-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Surgeon AI</h1>
+    <div class="subtitle">Interactive CLI Cheatsheet</div>
+
+    <!-- Installation -->
+    <h2>Installation & Usage</h2>
+
+    <div class="command-card">
+        <h3 class="command-title">Run Instantly (Recommended)</h3>
+        <p class="command-desc">Use npx to run the latest version directly without installing it globally.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd1">npx surgeon-ai scan</span></div>
+            <button class="copy-btn" onclick="copyText('cmd1', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <div class="command-card">
+        <h3 class="command-title">Install Globally</h3>
+        <p class="command-desc">Install it globally on your machine to use the `srgn` command anywhere.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd2">npm install -g surgeon-ai</span></div>
+            <button class="copy-btn" onclick="copyText('cmd2', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <!-- Core Commands -->
+    <h2>Core Commands</h2>
+
+    <div class="command-card">
+        <h3 class="command-title">Initialize Project</h3>
+        <p class="command-desc">Create a configuration file (.surgeon/config.json) in your current project.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd3">srgn init</span></div>
+            <button class="copy-btn" onclick="copyText('cmd3', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <div class="command-card">
+        <h3 class="command-title">Scan Codebase</h3>
+        <p class="command-desc">Run a comprehensive audit on the entire project.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd4">srgn scan</span></div>
+            <button class="copy-btn" onclick="copyText('cmd4', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <div class="command-card">
+        <h3 class="command-title">Review Findings</h3>
+        <p class="command-desc">Open the interactive terminal UI to browse and select issues.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd5">srgn review</span></div>
+            <button class="copy-btn" onclick="copyText('cmd5', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <div class="command-card">
+        <h3 class="command-title">Apply Fixes</h3>
+        <p class="command-desc">Automatically apply fixes for selected issues from the last scan on a new git branch.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd6">srgn fix --yes</span></div>
+            <button class="copy-btn" onclick="copyText('cmd6', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <div class="command-card">
+        <h3 class="command-title">Generate Report</h3>
+        <p class="command-desc">Regenerate Markdown and HTML reports from the last scan data.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd7">srgn report</span></div>
+            <button class="copy-btn" onclick="copyText('cmd7', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <!-- Development -->
+    <h2>Development & Publishing</h2>
+
+    <div class="command-card">
+        <h3 class="command-title">Publish to NPM</h3>
+        <p class="command-desc">Build the project and publish it to the npm registry.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd8">pnpm run publisher</span></div>
+            <button class="copy-btn" onclick="copyText('cmd8', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+    
+    <div class="command-card">
+        <h3 class="command-title">Link for Local Testing</h3>
+        <p class="command-desc">Make this package available locally so you can test it in other projects before publishing.</p>
+        <div class="code-container">
+            <div class="code-text"><span class="prompt">$</span><span id="cmd9">pnpm link --global</span></div>
+            <button class="copy-btn" onclick="copyText('cmd9', this)">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Copy
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function copyText(elementId, btn) {
+            const textToCopy = document.getElementById(elementId).innerText;
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Copied!`;
+                btn.classList.add('copied');
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+    </script>
+</body>
+</html>

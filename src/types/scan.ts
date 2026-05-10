@@ -3,6 +3,7 @@ import type { Finding } from "./finding.js";
 export type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
 export type ScanScope = "full" | "branch";
 export type ScanDepth = "shallow" | "standard" | "deep";
+export type NextjsRouter = "app" | "pages" | "both";
 
 export interface ProjectInfo {
   name: string;
@@ -12,6 +13,8 @@ export interface ProjectInfo {
   nodeVersion?: string;
   totalFiles: number;
   scannedFiles: number;
+  /** Populated when Next.js is detected: which router convention the project uses. */
+  nextjsRouter?: NextjsRouter;
 }
 
 export interface ScanMeta {

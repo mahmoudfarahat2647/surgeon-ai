@@ -1,7 +1,7 @@
-import type { ModuleCluster } from "../types/graph.js";
+import type { ModuleCluster, } from "../types/graph.js";
 import type { FrameworkProfile, AuditMode } from "../profiles/types.js";
 import { getProfileFragments, getAllPitfalls } from "../profiles/index.js";
-import type { ModuleScan } from "../types/scan.js";
+import type { ModuleScan, ProjectInfo } from "../types/scan.js";
 import type { Finding } from "../types/finding.js";
 
 export function buildChunkPrompt(
@@ -10,6 +10,7 @@ export function buildChunkPrompt(
   mode: AuditMode,
   depth: "shallow" | "standard" | "deep",
   fileContents: Map<string, string>,
+  project: ProjectInfo,
 ): string {
   const depthInstruction: Record<string, string> = {
     shallow: "Focus on critical and high severity issues only. Be concise.",
@@ -38,7 +39,7 @@ Each finding MUST include exact file path, line number, evidence code, concrete 
 Do NOT report style preferences, issues in generated code, or theoretical issues requiring unlikely preconditions.
 
 ## Audit Rules
-${getProfileFragments(profiles, mode)}
+${getProfileFragments(profiles, mode, project)}
 
 ## Known Pitfalls
 ${getAllPitfalls(profiles)}
