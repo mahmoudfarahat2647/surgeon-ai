@@ -1,6 +1,6 @@
 {
   "name": "surgeon-ai",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-Powered Codebase Audit & Repair CLI",
   "type": "module",
   "bin": {
@@ -16,7 +16,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -28,7 +30,15 @@
     "prepublishOnly": "pnpm run build",
     "publisher": "pnpm publish"
   },
-  "keywords": ["audit", "codebase", "security", "ai", "claude", "code-review", "cli"],
+  "keywords": [
+    "audit",
+    "codebase",
+    "security",
+    "ai",
+    "claude",
+    "code-review",
+    "cli"
+  ],
   "license": "MIT",
   "packageManager": "pnpm@10.33.2",
   "dependencies": {},
